@@ -29,3 +29,15 @@ class SelfAttention(nn.Module):
         )
         
         attention_scores = attention_scores / (self.embedding_dim ** 0.5)
+        
+        attention_weights = torch.softmax(
+            attention_scores,
+            dim=-1
+        )
+        
+        attention_output = torch.matmul(
+            attention_weights,
+            V,
+        )
+        
+        return attention_output, attention_weights
