@@ -17,6 +17,8 @@ class MultiHeadSelfAttention(nn.Module):
         self.key = nn.Linear(embedding_dim, embedding_dim)
         self.value = nn.Linear(embedding_dim, embedding_dim)
         
+        self.output = nn.Linear(embedding_dim, embedding_dim)
+        
     def split_heads(
         self,
         x: torch.Tensor
@@ -32,6 +34,23 @@ class MultiHeadSelfAttention(nn.Module):
         )
         
         x = x.transpose(1, 2)
+        
+        return x
+    
+    def combine_heads(
+        self,
+        x: torch.Tensor
+    ) -> torch.Tensor:
+        
+        batch_size, num_heads, sequence_length, head_dim = x.size()
+        
+        x = x.transpose(1, 2)
+        
+        x = x.reshape(
+            batch_size,
+            sequence_length,
+            self.embedding_dim
+        )
         
         return x
     
@@ -71,5 +90,9 @@ class MultiHeadSelfAttention(nn.Module):
             attention_weights,
             V,
         )
+        
+        attention_output = self.combine_heads(attention_output)
+        
+        attention_output = self.output(attention_output)
         
         return attention_output, attention_weights
