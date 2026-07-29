@@ -1,6 +1,9 @@
 import torch
 from torch import nn
 
+from src.model_input_encoding import InputEncoding
+from src.model_Transformer_Encoder import TransformerEncoder
+
 class ProteinTransformerModel(nn.Module):
     def __init__(
         self,
@@ -11,6 +14,7 @@ class ProteinTransformerModel(nn.Module):
         num_layers: int,
         max_seq_length: int,
         feedforward_dim: int,
+        padding_idx: int = 0,
         dropout: float = 0.1,
     ):
         super().__init__()
@@ -20,79 +24,50 @@ class ProteinTransformerModel(nn.Module):
                 "Embedding dimension must be divisible by the number of heads."
             )
         
-        self.embedding = nn.Embedding(
-            vocab_size,
-            embedding_dim,
-            padding_idx=0
+        self.padding_idx = padding_idx
+        
+        self.input_embedding = InputEncoding(
+            vocab_size=vocab_size,
+            embedding_dim=embedding_dim,
+            padding_idx=padding_idx,
+            max_seq_length=max_seq_length,
+            dropout=dropout
         )
         
-        self.max_seq_length = max_seq_length
-        
-        self.positional_encoding = nn.Embedding(
-            max_seq_length,
-            embedding_dim
-        )
-        
-        self.dropout = nn.Dropout(dropout)
-        
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=embedding_dim,
-            nhead=num_heads,
-            dim_feedforward=feedforward_dim,
-            dropout=dropout,
-            batch_first=True
-        )
-        
-        self.encoder = nn.TransformerEncoder(
-            encoder_layer=encoder_layer,
-            num_layers=num_layers
+        self.encoder = TransformerEncoder(
+            embedding_dim=embedding_dim,
+            feedforward_dim=feedforward_dim,
+            num_heads=num_heads,
+            num_layers=num_layers,
+            dropout=dropout
         )
         
         self.classifier = nn.Linear(
-            in_features=embedding_dim, 
-            out_features=num_classes)
+            embedding_dim,
+            num_classes
+        )
+        
 
     def forward(
         self,
         sequences: torch.Tensor,
     ) -> torch.Tensor:
         
-        batch_size, seq_length = sequences.size()
+        padding_mask = (sequences == self.padding_idx)
         
-        if seq_length > self.max_seq_length:
-            raise ValueError(
-                f"Sequence length {seq_length} exceeds the maximum allowed length {self.max_seq_length}."
-            )
-            
-        padding_mask = sequences == 0
+        x = self.input_embedding(sequences)
         
-        positions = torch.arange(
-            seq_length,
-            device=sequences.device
-        )
-        
-        token_embeddings = self.embedding(sequences)
-        position_embeddings = self.positional_encoding(positions)
-        
-        embedding = token_embeddings + position_embeddings
-        
-        x = self.dropout(embedding)
-        encoded_output = self.encoder(
-            x,
-            src_key_padding_mask=padding_mask
+        x, attention_weights_list = self.encoder(
+            x=x,
+            padding_mask=padding_mask,
         )
         
         valid_token_mask = ~padding_mask
         valid_token_mask = valid_token_mask.unsqueeze(-1)
         
-        masked_encoded_output = encoded_output * valid_token_mask
-        sum_embeddings = masked_encoded_output.sum(dim=1)
-        valid_token_counts = valid_token_mask.sum(dim=1).clamp(min=1)
+        masked_x = x * valid_token_mask
+        pooled_x = masked_x.sum(dim=1) / valid_token_mask.sum(dim=1).clamp(min=1)
         
-        pooled = sum_embeddings / valid_token_counts
+        logits = self.classifier(pooled_x)
         
-        logits = self.classifier(pooled)
-        
-        return logits
-        
-        
+        return logits, attention_weights_list
