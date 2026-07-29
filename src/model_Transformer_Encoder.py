@@ -10,21 +10,24 @@ class TransformerEncoder(nn.Module):
         embedding_dim: int,
         feedforward_dim: int,
         num_heads: int,
+        num_layers: int,
         dropout: float = 0.1,
     ) -> None:
         super().__init__()
         
-        self.attention_sublayer = AttentionSublayer(
-            embedding_dim=embedding_dim,
-            num_head=num_heads,
-            dropout=dropout
-        )
-        
-        self.feedforward_sublayer = FeedForwardSublayer(
-            embedding_dim=embedding_dim,
-            feedforward_dim=feedforward_dim,
-            dropout=dropout
-        )
+        self.layers = nn.ModuleList([
+            AttentionSublayer(
+                embedding_dim=embedding_dim,
+                num_head=num_heads,
+                dropout=dropout
+            ),
+            FeedForwardSublayer(
+                embedding_dim=embedding_dim,
+                feedforward_dim=feedforward_dim,
+                dropout=dropout
+            )
+            for _ in range(num_layers)
+        ])
         
     def forward(
         self,
@@ -32,11 +35,13 @@ class TransformerEncoder(nn.Module):
         padding_mask: torch.Tensor | None = None
     ) -> torch.Tensor:
         
-        attention_output, attention_weights = self.attention_sublayer(
-            x,
-            padding_mask,
-        )
+        attention_weights_list = []
         
-        final_output = self.feedforward_sublayer(attention_output)
+        for layer in self.layers:
+            x, attention_weights = layer(
+                x=x,
+                padding_mask=padding_mask
+            )
+            attention_weights_list.append(attention_weights)
         
-        return final_output, attention_weights
+        return x, attention_weights_list
